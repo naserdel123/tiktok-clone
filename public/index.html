@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TikTok Pro</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Splash Screen -->
+    <div class="splash" v-if="loading">
+      <div class="splash-content">
+        <i class="fab fa-tiktok"></i>
+        <div class="loading-bar"></div>
+      </div>
+    </div>
+
+    <!-- Auth Screen -->
+    <div class="auth-screen" v-else-if="!isAuthenticated">
+      <div class="auth-box">
+        <div class="auth-logo">
+          <i class="fab fa-tiktok"></i>
+          <h1>TikTok Pro</h1>
+        </div>
+        
+        <div class="auth-tabs">
+          <button :class="{ active: authMode === 'login' }" @click="authMode = 'login'">دخول</button>
+          <button :class="{ active: authMode === 'register' }" @click="authMode = 'register'">تسجيل</button>
+        </div>
+
+        <!-- Login -->
+        <div v-if="authMode === 'login'" class="auth-form">
+          <div class="input-group">
+            <i class="fas fa-user"></i>
+            <input type="text" v-model="loginForm.username" placeholder="اسم المستخدم">
+          </div>
+          <div class="input-group">
+            <i class="fas fa-lock"></i>
+            <input type="password" v-model="loginForm.password" placeholder="كلمة المرور" @keyup.enter="handleLogin">
+          </div>
+          <button class="btn-primary" @click="handleLogin" :disabled="loggingIn">
+            <span v-if="!loggingIn">دخول</span>
+            <i class="fas fa-spinner fa-spin" v-else></i>
+          </button>
+        </div>
+
+        <!-- Register -->
+        <div v-else class="auth-form">
+          <div class="input-group">
+            <i class="fas fa-user"></i>
+            <input type="text" v-model="registerForm.username" placeholder="اسم المستخدم">
+          </div>
+          <div class="input-group">
+            <i class="fas fa-envelope"></i>
+            <input type="email" v-model="registerForm.email" placeholder="البريد الإلكتروني">
+          </div>
+          <div class="input-group">
+            <i class="fas fa-lock"></i>
+            <input type="password" v-model="registerForm.password" placeholder="كلمة المرور" @keyup.enter="handleRegister">
+          </div>
+          <button class="btn-primary" @click="handleRegister" :disabled="registering">
+            <span v-if="!registering">إنشاء حساب</span>
+            <i class="fas fa-spinner fa-spin" v-else></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main App -->
+    <template v-else>
+      <!-- Goal Banner -->
+      <div class="goal-banner" v-if="!currentUser.canGoLive">
+        <div class="progress" :style="{ width: (currentUser.followers / 300 * 100) + '%' }"></div>
+        <span>{{ currentUser.followers }}/300 متابع للبث المباشر</span>
+      </div>
+
+      <!-- Live Available -->
+      <div class="live-available" v-if="currentUser.canGoLive && !currentUser.isLive" @click="openLiveModal">
+        <i class="fas fa-broadcast-tower"></i>
+        <span>البث متاح!</span>
+      </div>
+
+      <!-- Header -->
+      <header class="app-header">
+        <div class="logo" @click="navigate('feed')">
+          <i class="fab fa-tiktok"></i>
+        </div>
+        
+        <nav class="main-nav">
+          <button 
+            v-for="item in navItems" 
+            :key="item.id" 
+            :class="{ active: currentPage === item.id }" 
+            @click="navigate(item.id)"
+          >
+            <i :class="item.icon"></i>
+            <span>{{ item.name }}</span>
+          </button>
+        </nav>
+
+        <div class="header-actions">
+          <button class="btn-icon" @click="showNotifications = true">
+            <i class="fas fa-bell"></i>
+            <span class="badge" v-if="unreadNotifications > 0">{{ unreadNotifications }}</span>
+          </button>
+          <button class="btn-icon" @click="showChats = true">
+            <i class="fas fa-comment-dots"></i>
+            <span class="badge" v-if="unreadChats > 0">{{ unreadChats }}</span>
+          </button>
+          <button class="btn-icon" @click="showUpload = true">
+            <i class="fas fa-plus"></i>
+          </button>
+          <img :src="currentUser.avatar" class="avatar-mini" @click="navigate('profile')">
+        </div>
+      </header>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        
+        <!-- Feed Page -->
+        <div v-if="currentPage === 'feed'" class="page-feed">
+          <div class="video-feed">
+            <div v-for="video in feedVideos" :key="video.id" class="video-card">
+              <div class="video-player" @click="togglePlay(video)">
+                <video :src="video.url" loop playsinline></video>
+                <div class="play-btn" v-if="!video.playing">
+                  <i class="fas fa-play"></i>
+                </div>
+                
+                <!-- Side Actions -->
+                <div class="side-actions">
+                  <button @click.stop="likeVideo(video)" :class="{ active: video.isLiked }">
+                    <i class="fas fa-heart"></i>
+                    <span>{{ formatNumber(video.likes) }}</span>
+                  </button>
+                  <button @click.stop="saveVideo(video)" :class="{ active: video.isSaved }">
+                    <i class="fas fa-bookmark"></i>
+                  </button>
+                  <button @click.stop="goToProfile(video.user.id)">
+                    <img :src="video.user.avatar">
+                  </button>
+                </div>
+
+                <!-- Video Info -->
+                <div class="video-info">
+                  <div class="author" @click.stop="goToProfile(video.user.id)">
+                    <span>@{{ video.user.username }}</span>
+                  </div>
+                  <p>{{ video.description }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Discover Page -->
+        <div v-if="currentPage === 'discover'" class="page-discover">
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" v-model="searchQuery" placeholder="بحث..." @keyup.enter="performSearch">
+          </div>
+
+          <div class="suggested-section">
+            <h3>مقترح لك</h3>
+            <div class="creators-grid">
+              <div v-for="user in suggestedUsers" :key="user.id" class="creator-card" @click="goToProfile(user.id)">
+                <img :src="user.avatar">
+                <h4>@{{ user.username }}</h4>
+                <p>{{ formatNumber(user.followers) }} متابع</p>
+                <button @click.stop="followUser(user)">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Leaderboard Page -->
+        <div v-if="currentPage === 'leaderboard'" class="page-leaderboard">
+          <h2>🏆 المتصدرين</h2>
+          <div class="leaderboard-list">
+            <div v-for="(user, i) in leaderboard" :key="user.id" class="leader-item">
+              <span class="rank">{{ i + 1 }}</span>
+              <img :src="user.avatar">
+              <div class="info">
+                <h4>@{{ user.username }}</h4>
+                <span>{{ formatNumber(user.followers) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Profile Page -->
+        <div v-if="currentPage === 'profile'" class="page-profile">
+          <div v-if="viewingProfile" class="profile-container">
+            <div class="profile-header">
+              <div class="avatar-large">
+                <img :src="viewingProfile.avatar">
+                <div class="live-badge" v-if="viewingProfile.isLive">🔴 LIVE</div>
+              </div>
+              <h2>@{{ viewingProfile.username }}</h2>
+              <p class="bio">{{ viewingProfile.bio || 'لا يوجد وصف' }}</p>
+              
+              <div class="stats">
+                <div>
+                  <strong>{{ formatNumber(viewingProfile.following) }}</strong>
+                  <span>يتابع</span>
+                </div>
+                <div>
+                  <strong>{{ formatNumber(viewingProfile.followers) }}</strong>
+                  <span>متابعين</span>
+                </div>
+                <div>
+                  <strong>{{ formatNumber(viewingProfile.videosCount) }}</strong>
+                  <span>فيديو</span>
+                </div>
+              </div>
+
+              <div class="actions" v-if="viewingProfile.id !== currentUser.id">
+                <button :class="{ following: viewingProfile.isFollowing }" @click="followUser(viewingProfile)">
+                  {{ viewingProfile.isFollowing ? 'إلغاء المتابعة' : 'متابعة' }}
+                </button>
+                <button @click="startChat(viewingProfile)">رسالة</button>
+              </div>
+            </div>
+
+            <div class="profile-tabs">
+              <button :class="{ active: profileTab === 'videos' }" @click="profileTab = 'videos'">الفيديوهات</button>
+              <button :class="{ active: profileTab === 'saved' }" @click="profileTab = 'saved'">المحفوظات</button>
+              <button :class="{ active: profileTab === 'liked' }" @click="profileTab = 'liked'">الإعجابات</button>
+            </div>
+
+            <div class="profile-content">
+              <div v-if="profileTab === 'videos'" class="videos-grid">
+                <div v-for="video in viewingProfile.videos" :key="video.id" class="video-thumb" @click="playVideo(video)">
+                  <video :src="video.url"></video>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Upload Modal -->
+      <div class="modal" v-if="showUpload" @click.self="showUpload = false">
+        <div class="upload-modal">
+          <h2>رفع فيديو</h2>
+          <div class="upload-area" @click="$refs.videoInput.click()">
+            <input type="file" ref="videoInput" accept="video/*" @change="handleVideoSelect" hidden>
+            <video v-if="videoPreview" :src="videoPreview" controls></video>
+            <div v-else class="placeholder">
+              <i class="fas fa-cloud-upload-alt"></i>
+              <p>اختر فيديو</p>
+            </div>
+          </div>
+          <textarea v-model="uploadCaption" placeholder="وصف..."></textarea>
+          <button class="btn-primary" @click="uploadVideo" :disabled="!selectedVideo || uploading">
+            {{ uploading ? 'جاري الرفع...' : 'نشر' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Modal -->
+      <div class="live-modal" v-if="liveModal">
+        <div class="live-prep" v-if="!isStreaming">
+          <h2>📡 ابدأ البث</h2>
+          <input type="text" v-model="liveTitle" placeholder="عنوان البث">
+          <div class="camera-preview">
+            <video ref="previewVideo" autoplay muted v-show="cameraReady"></video>
+            <button v-if="!cameraReady" @click="initCamera">تفعيل الكاميرا</button>
+          </div>
+          <button class="btn-live" @click="startLive" :disabled="!cameraReady">🔴 ابدأ</button>
+          <button class="btn-cancel" @click="liveModal = false">إلغاء</button>
+        </div>
+      </div>
+
+      <!-- Chat Modal -->
+      <div class="modal" v-if="showChats" @click.self="showChats = false">
+        <div class="chat-list">
+          <h3>المحادثات</h3>
+          <div v-for="chat in chats" :key="chat.user.id" class="chat-item" @click="openChat(chat)">
+            <img :src="chat.user.avatar">
+            <div class="info">
+              <h4>@{{ chat.user.username }}</h4>
+              <p>{{ chat.lastMessage?.text || '' }}</p>
+            </div>
+            <span class="unread" v-if="chat.unread > 0">{{ chat.unread }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Chat -->
+      <div class="chat-window" v-if="activeChat">
+        <div class="chat-header">
+          <img :src="activeChat.user.avatar">
+          <span>@{{ activeChat.user.username }}</span>
+          <button @click="activeChat = null">×</button>
+        </div>
+        <div class="messages">
+          <div v-for="msg in chatMessages" :key="msg.id" :class="{ sent: msg.senderId === currentUser.id }">
+            <p>{{ msg.text }}</p>
+          </div>
+        </div>
+        <div class="input">
+          <input type="text" v-model="chatInput" @keyup.enter="sendMessage" placeholder="رسالة...">
+          <button @click="sendMessage"><i class="fas fa-paper-plane"></i></button>
+        </div>
+      </div>
+
+      <!-- Notifications Modal -->
+      <div class="modal" v-if="showNotifications" @click.self="showNotifications = false">
+        <div class="notifications-list">
+          <h3>الإشعارات</h3>
+          <div v-for="notif in notifications" :key="notif.id" class="notif-item" :class="{ unread: !notif.read }">
+            <p v-if="notif.type === 'follow'"><strong>@{{ notif.fromUser }}</strong> تابعك</p>
+            <p v-else-if="notif.type === 'like'"><strong>@{{ notif.fromUser }}</strong> أعجب بفيديو</p>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- App -->
+  <script src="app.js"></script>
+</body>
+</html>
