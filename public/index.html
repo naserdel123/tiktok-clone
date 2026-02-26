@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>TikTok Live</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Splash Screen -->
+    <div class="splash" v-if="!appReady">
+      <div class="splash-logo">
+        <i class="fab fa-tiktok"></i>
+        <div class="ripple"></div>
+        <div class="ripple"></div>
+        <div class="ripple"></div>
+      </div>
+    </div>
+
+    <!-- Auth -->
+    <div class="auth-screen" v-else-if="!currentUser">
+      <div class="auth-card" :class="{ shake: authError }">
+        <div class="logo-float">
+          <i class="fab fa-tiktok"></i>
+        </div>
+        <h1 class="glitch" data-text="انضم إلينا">انضم إلينا</h1>
+        <p class="subtitle">اجمع 300 متابع وابدأ البث المباشر</p>
+        
+        <div class="input-group">
+          <input 
+            type="text" 
+            v-model="loginUsername" 
+            placeholder="اسم المستخدم"
+            @keyup.enter="login"
+            :class="{ focused: inputFocused }"
+            @focus="inputFocused = true"
+            @blur="inputFocused = false"
+          >
+          <span class="input-border"></span>
+        </div>
+        
+        <button 
+          class="btn-magnetic" 
+          @click="login"
+          :disabled="!loginUsername || loggingIn"
+          @mousemove="magneticMove"
+          @mouseleave="magneticReset"
+        >
+          <span class="btn-text" v-if="!loggingIn">دخول</span>
+          <div class="loader" v-else>
+            <span></span><span></span><span></span>
+          </div>
+          <div class="btn-bg"></div>
+        </button>
+      </div>
+      
+      <div class="particles" id="particles"></div>
+    </div>
+
+    <!-- Main App -->
+    <template v-else>
+      <!-- Live Indicator -->
+      <div class="live-pulse" v-if="activeLives.length > 0" @click="showLivesList = true">
+        <span class="live-text">LIVE</span>
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring"></div>
+      </div>
+
+      <!-- Progress to 300 -->
+      <div class="goal-progress" v-if="!currentUser.canGoLive">
+        <div class="progress-glow" :style="{ width: progressPercent + '%' }"></div>
+        <div class="progress-info">
+          <span class="current">{{ currentUser.followers }}</span>
+          <span class="separator">/</span>
+          <span class="target">300</span>
+          <span class="label">للفتح البث المباشر</span>
+        </div>
+        <div class="progress-sparkles" :style="{ left: progressPercent + '%' }">
+          <i class="fas fa-star"></i>
+        </div>
+      </div>
+
+      <!-- Unlocked Badge -->
+      <div class="unlocked-badge" v-else-if="!currentUser.isLive">
+        <div class="badge-glow"></div>
+        <i class="fas fa-broadcast-tower"></i>
+        <span>البث متاح!</span>
+        <button class="start-live-btn" @click="prepareLive">
+          ابدأ البث الآن
+        </button>
+      </div>
+
+      <!-- Header -->
+      <header class="glass-header">
+        <div class="header-blur"></div>
+        <div class="logo-mini" @click="activeTab = 'feed'">
+          <i class="fab fa-tiktok"></i>
+        </div>
+        
+        <nav class="nav-tabs">
+          <button 
+            v-for="tab in tabs" 
+            :key="tab.id"
+            :class="{ active: activeTab === tab.id }"
+            @click="activeTab = tab.id"
+          >
+            <i :class="tab.icon"></i>
+            <span>{{ tab.name }}</span>
+            <div class="tab-indicator" v-if="activeTab === tab.id"></div>
+          </button>
+        </nav>
+
+        <div class="user-menu" @click="showProfile = true">
+          <img :src="currentUser.avatar" class="avatar-glow">
+          <div class="online-dot"></div>
+        </div>
+      </header>
+
+      <!-- Content -->
+      <main class="content-area">
+        <!-- Feed -->
+        <div v-if="activeTab === 'feed'" class="feed-container">
+          <div class="video-scroll">
+            <div 
+              v-for="(video, index) in videos" 
+              :key="video.id"
+              class="video-item"
+              :style="{ animationDelay: index * 0.1 + 's' }"
+            >
+              <div class="video-wrapper" @click="togglePlay(video)">
+                <video :src="video.url" loop playsinline></video>
+                <div class="play-overlay" v-if="!video.playing">
+                  <div class="play-btn">
+                    <i class="fas fa-play"></i>
+                  </div>
+                </div>
+                
+                <!-- Floating Actions -->
+                <div class="floating-actions">
+                  <button class="action-btn like" @click.stop="likeVideo(video)">
+                    <div class="heart-burst" v-if="video.liked"></div>
+                    <i class="fas fa-heart" :class="{ liked: video.liked }"></i>
+                    <span class="count">{{ formatNumber(video.likes) }}</span>
+                  </button>
+                  
+                  <button class="action-btn" @click.stop="shareVideo(video)">
+                    <i class="fas fa-share"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="video-info-float">
+                <div class="author-float">
+                  <img :src="video.user.avatar" class="author-avatar">
+                  <span class="author-name">@{{ video.user.username }}</span>
+                  <button class="follow-mini" @click="followUser(video.user)">
+                    + متابعة
+                  </button>
+                </div>
+                <p class="video-desc">{{ video.description }}</p>
+                <div class="music-float">
+                  <i class="fas fa-music"></i>
+                  <div class="music-wave">
+                    <span></span><span></span><span></span><span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Discover -->
+        <div v-if="activeTab === 'discover'" class="discover-container">
+          <div class="search-float">
+            <i class="fas fa-search"></i>
+            <input 
+              type="text" 
+              v-model="searchQuery"
+              placeholder="ابحث عن منشئين..."
+              @input="searchUsers"
+            >
+            <div class="search-glow"></div>
+          </div>
+
+          <div class="section-header">
+            <h2 class="section-title">
+              <span class="title-icon">🔥</span>
+              الأكثر شهرة
+            </h2>
+          </div>
+
+          <div class="creators-grid">
+            <div 
+              v-for="(user, index) in suggestedUsers" 
+              :key="user.id"
+              class="creator-card"
+              :style="{ '--delay': index * 0.1 + 's' }"
+            >
+              <div class="card-shine"></div>
+              <div class="card-content">
+                <div class="avatar-ring" :class="{ live: user.isLive }">
+                  <img :src="user.avatar">
+                  <div class="live-badge" v-if="user.isLive">LIVE</div>
+                </div>
+                
+                <h3>@{{ user.username }}</h3>
+                <div class="stats-float">
+                  <span><i class="fas fa-users"></i> {{ formatNumber(user.followers) }}</span>
+                  <span><i class="fas fa-video"></i> {{ user.videosCount }}</span>
+                </div>
+                
+                <button 
+                  class="follow-btn-3d"
+                  :class="{ following: isFollowing(user.id) }"
+                  @click="followUser(user)"
+                >
+                  <span class="btn-front">
+                    {{ isFollowing(user.id) ? '✓' : '+' }}
+                  </span>
+                  <span class="btn-side"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Leaderboard -->
+        <div v-if="activeTab === 'leaderboard'" class="leaderboard-container">
+          <div class="podium">
+            <div class="podium-item second" v-if="leaderboard[1]">
+              <div class="crown">🥈</div>
+              <div class="avatar-float">
+                <img :src="leaderboard[1].avatar">
+              </div>
+              <h3>@{{ leaderboard[1].username }}</h3>
+              <div class="score">{{ formatNumber(leaderboard[1].followers) }}</div>
+              <div class="podium-base" style="height: 120px;"></div>
+            </div>
+            
+            <div class="podium-item first" v-if="leaderboard[0]">
+              <div class="crown">👑</div>
+              <div class="avatar-float">
+                <img :src="leaderboard[0].avatar">
+                <div class="glow-ring"></div>
+              </div>
+              <h3>@{{ leaderboard[0].username }}</h3>
+              <div class="score">{{ formatNumber(leaderboard[0].followers) }}</div>
+              <div class="podium-base" style="height: 160px;"></div>
+            </div>
+            
+            <div class="podium-item third" v-if="leaderboard[2]">
+              <div class="crown">🥉</div>
+              <div class="avatar-float">
+                <img :src="leaderboard[2].avatar">
+              </div>
+              <h3>@{{ leaderboard[2].username }}</h3>
+              <div class="score">{{ formatNumber(leaderboard[2].followers) }}</div>
+              <div class="podium-base" style="height: 80px;"></div>
+            </div>
+          </div>
+
+          <div class="ranking-list">
+            <div 
+              v-for="(user, index) in leaderboard.slice(3)" 
+              :key="user.id"
+              class="rank-item"
+              :class="{ 'slide-in': true }"
+              :style="{ animationDelay: index * 0.05 + 's' }"
+            >
+              <span class="rank-num">{{ index + 4 }}</span>
+              <img :src="user.avatar">
+              <div class="rank-info">
+                <h4>@{{ user.username }}</h4>
+                <span>{{ formatNumber(user.followers) }} متابع</span>
+              </div>
+              <button class="follow-micro" @click="followUser(user)">+</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Live Stream Modal -->
+      <div class="live-modal" v-if="showLiveModal" :class="{ active: liveStage === 'streaming' }">
+        <!-- Preparation -->
+        <div class="live-prep" v-if="liveStage === 'prep'">
+          <div class="prep-glow"></div>
+          <h2>📡 جاهز للبث؟</h2>
+          <input 
+            type="text" 
+            v-model="liveTitle" 
+            placeholder="عنوان البث المباشر..."
+            class="live-input"
+          >
+          <div class="camera-preview" ref="cameraPreview">
+            <div class="camera-placeholder" v-if="!cameraReady">
+              <i class="fas fa-camera"></i>
+              <button @click="initCamera">تفعيل الكاميرا</button>
+            </div>
+            <video v-show="cameraReady" ref="previewVideo" autoplay muted></video>
+          </div>
+          <div class="prep-actions">
+            <button class="btn-cancel" @click="showLiveModal = false">إلغاء</button>
+            <button 
+              class="btn-start-broadcast" 
+              @click="startLive"
+              :disabled="!cameraReady || !liveTitle"
+            >
+              <span class="btn-text">ابدأ البث</span>
+              <div class="btn-shine"></div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Streaming -->
+        <div class="live-streaming" v-if="liveStage === 'streaming'">
+          <video class="live-video" ref="liveVideo" autoplay muted></video>
+          
+          <!-- Live Overlay -->
+          <div class="live-overlay">
+            <div class="live-header">
+              <div class="live-badge-big">
+                <span class="live-dot"></span>
+                LIVE
+              </div>
+              <div class="viewer-count">
+                <i class="fas fa-eye"></i>
+                <span>{{ liveViewers }}</span>
+              </div>
+              <button class="end-live" @click="endLive">إنهاء</button>
+            </div>
+
+            <div class="live-info">
+              <h3>{{ liveTitle }}</h3>
+              <p>@{{ currentUser.username }}</p>
+            </div>
+
+            <!-- Comments -->
+            <div class="comments-flow">
+              <div 
+                v-for="comment in liveComments" 
+                :key="comment.id"
+                class="comment-bubble"
+              >
+                <span class="comment-user">{{ comment.username }}:</span>
+                <span class="comment-text">{{ comment.text }}</span>
+              </div>
+            </div>
+
+            <!-- Like Animation -->
+            <div class="likes-container" ref="likesContainer"></div>
+
+            <!-- Controls -->
+            <div class="live-controls">
+              <div class="comment-input-live">
+                <input 
+                  type="text" 
+                  v-model="liveCommentText"
+                  placeholder="اكتب تعليق..."
+                  @keyup.enter="sendComment"
+                >
+                <button @click="sendComment">
+                  <i class="fas fa-paper-plane"></i>
+                </button>
+              </div>
+              <button class="like-btn-big" @click="sendLike">
+                <i class="fas fa-heart"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Watch Live Modal -->
+      <div class="watch-live-modal" v-if="watchingLive">
+        <video class="watch-video" ref="watchVideo" autoplay></video>
+        
+        <div class="watch-overlay">
+          <button class="close-watch" @click="stopWatching">×</button>
+          
+          <div class="streamer-info">
+            <img :src="watchingLive.user.avatar">
+            <div>
+              <h3>@{{ watchingLive.user.username }}</h3>
+              <p>{{ watchingLive.title }}</p>
+            </div>
+          </div>
+
+          <div class="watch-stats">
+            <span><i class="fas fa-eye"></i> {{ watchingLive.viewers }}</span>
+            <span><i class="fas fa-heart"></i> {{ watchingLive.likes }}</span>
+          </div>
+
+          <div class="watch-comments">
+            <div 
+              v-for="comment in watchingLive.comments" 
+              :key="comment.id"
+              class="watch-comment"
+            >
+              <strong>{{ comment.username }}:</strong> {{ comment.text }}
+            </div>
+          </div>
+
+          <div class="watch-actions">
+            <input type="text" v-model="watchCommentText" placeholder="تعليق..." @keyup.enter="sendWatchComment">
+            <button @click="sendWatchLike"><i class="fas fa-heart"></i></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lives List -->
+      <div class="modal" v-if="showLivesList">
+        <div class="lives-list-modal">
+          <h2>🔴 بثوث مباشرة الآن</h2>
+          <div v-if="activeLives.length === 0" class="no-lives">
+            لا يوجد بثوث نشطة
+          </div>
+          <div 
+            v-for="live in activeLives" 
+            :key="live.id"
+            class="live-item"
+            @click="joinLive(live)"
+          >
+            <div class="live-thumb">
+              <div class="live-pulse-small"></div>
+            </div>
+            <div class="live-info-item">
+              <h4>@{{ live.user.username }}</h4>
+              <p>{{ live.title }}</p>
+              <span><i class="fas fa-eye"></i> {{ live.viewers }}</span>
+            </div>
+          </div>
+          <button class="close-modal" @click="showLivesList = false">إغلاق</button>
+        </div>
+      </div>
+
+      <!-- Profile -->
+      <div class="modal profile-modal" v-if="showProfile">
+        <div class="profile-card">
+          <button class="close-btn" @click="showProfile = false">×</button>
+          
+          <div class="profile-header-3d">
+            <div class="avatar-3d">
+              <img :src="currentUser.avatar">
+              <div class="orbit"></div>
+            </div>
+            <h2>@{{ currentUser.username }}</h2>
+            <div class="badge-crown" v-if="currentUser.canGoLive">👑 بث مباشر</div>
+          </div>
+
+          <div class="stats-3d">
+            <div class="stat-box">
+              <div class="stat-value">{{ currentUser.following }}</div>
+              <div class="stat-label">يتابع</div>
+            </div>
+            <div class="stat-box highlight">
+              <div class="stat-value">{{ currentUser.followers }}</div>
+              <div class="stat-label">متابعين</div>
+              <div class="stat-glow" v-if="!currentUser.canGoLive"></div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">{{ currentUser.videosCount }}</div>
+              <div class="stat-label">فيديو</div>
+            </div>
+          </div>
+
+          <div class="goal-section" v-if="!currentUser.canGoLive">
+            <div class="goal-ring" :style="{ '--progress': progressPercent }">
+              <svg viewBox="0 0 100 100">
+                <circle class="track" cx="50" cy="50" r="45"/>
+                <circle class="fill" cx="50" cy="50" r="45"/>
+              </svg>
+              <div class="goal-text">
+                <span>{{ currentUser.followers }}</span>
+                <small>/ 300</small>
+              </div>
+            </div>
+            <p>تابع مستخدمين ليزداد عدد متابعيك!</p>
+          </div>
+
+          <button class="logout-btn" @click="logout">
+            <i class="fas fa-sign-out-alt"></i> خروج
+          </button>
+        </div>
+      </div>
+
+      <!-- Celebration -->
+      <div class="celebration-modal" v-if="showCelebration">
+        <div class="fireworks" id="fireworks"></div>
+        <div class="celebration-content">
+          <div class="trophy">🏆</div>
+          <h1 class="celebration-title">مبروك!</h1>
+          <p class="celebration-text">وصلت 300 متابع</p>
+          <p class="celebration-sub">يمكنك الآن البث المباشر!</p>
+          <button class="celebration-btn" @click="closeCelebration">
+            ابدأ البث
+          </button>
+        </div>
+      </div>
+
+      <!-- Toast -->
+      <div class="toast-container">
+        <transition-group name="toast">
+          <div 
+            v-for="toast in toasts" 
+            :key="toast.id"
+            class="toast"
+            :class="toast.type"
+          >
+            <i :class="toast.icon"></i>
+            <span>{{ toast.message }}</span>
+          </div>
+        </transition-group>
+      </div>
+    </template>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
